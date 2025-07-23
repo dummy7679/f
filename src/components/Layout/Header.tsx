@@ -1,5 +1,5 @@
 import React from 'react';
-import { Video, LogOut, User, Settings } from 'lucide-react';
+import { Video } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 
 export function Header() {

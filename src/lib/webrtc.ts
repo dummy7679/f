@@ -15,6 +15,7 @@ export class WebRTCManager {
   private participantName: string;
   private onStreamCallback?: (peerId: string, stream: MediaStream, name: string) => void;
   private onPeerLeftCallback?: (peerId: string) => void;
+  private onHandRaisedCallback?: (participantId: string, name: string, raised: boolean) => void;
   private signalingChannel: any;
   private isInitialized = false;
 
@@ -43,13 +44,20 @@ export class WebRTCManager {
       .on('broadcast', { event: 'user-left' }, (payload) => {
         this.handleUserLeft(payload.payload);
       })
+      .on('broadcast', { event: 'hand-raised' }, (payload) => {
+        this.handleHandRaised(payload.payload);
+      })
       .subscribe();
   }
 
   async initializeMedia(video: boolean = true, audio: boolean = true): Promise<MediaStream> {
     try {
       this.localStream = await navigator.mediaDevices.getUserMedia({
-        video: video ? { width: 1280, height: 720 } : false,
+        video: video ? { 
+          width: { ideal: 1280 }, 
+          height: { ideal: 720 },
+          facingMode: 'user'
+        } : false,
         audio: audio ? { 
           echoCancellation: true, 
           noiseSuppression: true, 
@@ -66,8 +74,14 @@ export class WebRTCManager {
   async startScreenShare(): Promise<MediaStream> {
     try {
       const screenStream = await navigator.mediaDevices.getDisplayMedia({
-        video: { cursor: 'always' },
-        audio: true
+        video: { 
+          cursor: 'always',
+          displaySurface: 'monitor'
+        },
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true
+        }
       });
       
       // Replace video track in all peer connections
@@ -252,6 +266,12 @@ export class WebRTCManager {
     }
   }
 
+  private handleHandRaised(data: { participantId: string; name: string; raised: boolean }) {
+    if (data.participantId !== this.participantId) {
+      this.onHandRaisedCallback?.(data.participantId, data.name, data.raised);
+    }
+  }
+
   onStream(callback: (peerId: string, stream: MediaStream, name: string) => void) {
     this.onStreamCallback = callback;
   }
@@ -289,11 +309,7 @@ export class WebRTCManager {
   }
 
   onHandRaised(callback: (participantId: string, name: string, raised: boolean) => void) {
-    this.signalingChannel.on('broadcast', { event: 'hand-raised' }, (payload: any) => {
-      if (payload.payload.participantId !== this.participantId) {
-        callback(payload.payload.participantId, payload.payload.name, payload.payload.raised);
-      }
-    });
+    this.onHandRaisedCallback = callback;
   }
 
   async leaveMeeting() {

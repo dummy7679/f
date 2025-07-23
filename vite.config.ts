@@ -8,7 +8,8 @@ export default defineConfig({
     global: 'globalThis',
   },
   server: {
-    historyApiFallback: true,
+    host: true,
+    port: 5173,
   },
   build: {
     rollupOptions: {

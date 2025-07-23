@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Mail, Lock, User, Video } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
+import toast from 'react-hot-toast';
+import { supabase } from '../../lib/supabase';
 
 export function SignUp() {
   const [email, setEmail] = useState('');
@@ -9,7 +10,6 @@ export function SignUp() {
   const [fullName, setFullName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const { signUp } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -22,10 +22,22 @@ export function SignUp() {
 
     setLoading(true);
     try {
-      await signUp(email, password, fullName);
-      navigate('/dashboard');
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName,
+          },
+        },
+      });
+
+      if (error) throw error;
+      
+      toast.success('Account created successfully!');
+      navigate('/');
     } catch (error) {
-      // Error is handled in the context
+      toast.error('Failed to create account');
     } finally {
       setLoading(false);
     }

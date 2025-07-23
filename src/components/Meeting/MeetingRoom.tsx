@@ -10,7 +10,6 @@ import { WebRTCManager } from '../../lib/webrtc';
 import { VideoGrid } from './VideoGrid';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
-import { v4 as uuidv4 } from 'uuid';
 
 interface ChatMessage {
   id: string;
@@ -39,7 +38,7 @@ export function MeetingRoom() {
   const [newMessage, setNewMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [participantName, setParticipantName] = useState('');
-  const [participantId] = useState(uuidv4());
+  const [participantId] = useState(() => crypto.randomUUID());
   
   // UI state
   const [activeTab, setActiveTab] = useState<'chat' | 'participants'>('chat');

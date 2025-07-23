@@ -8,37 +8,11 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 export type Database = {
   public: {
     Tables: {
-      users: {
-        Row: {
-          id: string;
-          email: string;
-          full_name: string;
-          role: 'host' | 'participant' | 'admin';
-          avatar_url?: string;
-          created_at: string;
-        };
-        Insert: {
-          id: string;
-          email: string;
-          full_name: string;
-          role?: 'host' | 'participant' | 'admin';
-          avatar_url?: string;
-          created_at?: string;
-        };
-        Update: {
-          id?: string;
-          email?: string;
-          full_name?: string;
-          role?: 'host' | 'participant' | 'admin';
-          avatar_url?: string;
-          created_at?: string;
-        };
-      };
       meetings: {
         Row: {
           id: string;
           title: string;
-          host_id: string;
+          host_name: string;
           start_time: string;
           end_time?: string;
           is_private: boolean;
@@ -48,7 +22,7 @@ export type Database = {
         Insert: {
           id?: string;
           title: string;
-          host_id: string;
+          host_name: string;
           start_time: string;
           end_time?: string;
           is_private?: boolean;
@@ -58,7 +32,7 @@ export type Database = {
         Update: {
           id?: string;
           title?: string;
-          host_id?: string;
+          host_name?: string;
           start_time?: string;
           end_time?: string;
           is_private?: boolean;

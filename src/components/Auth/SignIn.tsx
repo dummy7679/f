@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Mail, Lock, Video } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
+import toast from 'react-hot-toast';
+import { supabase } from '../../lib/supabase';
 
 export function SignIn() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const { signIn } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -17,10 +17,17 @@ export function SignIn() {
 
     setLoading(true);
     try {
-      await signIn(email, password);
-      navigate('/dashboard');
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) throw error;
+      
+      toast.success('Signed in successfully!');
+      navigate('/');
     } catch (error) {
-      // Error is handled in the context
+      toast.error('Failed to sign in');
     } finally {
       setLoading(false);
     }

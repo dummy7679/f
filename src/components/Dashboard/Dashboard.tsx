@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Calendar, Clock, Users, Plus, Video, Copy, ExternalLink } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -17,22 +16,54 @@ interface Meeting {
 }
 
 export function Dashboard() {
-  const { user, userProfile } = useAuth();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<any>(null);
+  const [userProfile, setUserProfile] = useState<any>(null);
 
   useEffect(() => {
-    fetchMeetings();
-  }, [user]);
+    initializeUser();
+  }, []);
 
-  const fetchMeetings = async () => {
-    if (!user) return;
+  const initializeUser = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUser(user);
+      
+      if (user) {
+        fetchMeetings(user.id);
+        fetchUserProfile(user.id);
+      }
+    } catch (error) {
+      console.error('Error initializing user:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchUserProfile = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (error) throw error;
+      setUserProfile(data);
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+    }
+  };
+
+  const fetchMeetings = async (userId: string) => {
+    if (!userId) return;
 
     try {
       const { data, error } = await supabase
         .from('meetings')
         .select('*')
-        .eq('host_id', user.id)
+        .eq('host_name', userProfile?.full_name || '')
         .order('start_time', { ascending: false });
 
       if (error) throw error;
@@ -40,8 +71,6 @@ export function Dashboard() {
     } catch (error) {
       console.error('Error fetching meetings:', error);
       toast.error('Failed to load meetings');
-    } finally {
-      setLoading(false);
     }
   };
 

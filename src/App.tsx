@@ -6,6 +6,9 @@ import { HomePage } from './components/Home/HomePage';
 import { CreateMeeting } from './components/Meeting/CreateMeeting';
 import { JoinMeeting } from './components/Meeting/JoinMeeting';
 import { MeetingRoom } from './components/Meeting/MeetingRoom';
+import { SignIn } from './components/Auth/SignIn';
+import { SignUp } from './components/Auth/SignUp';
+import { Dashboard } from './components/Dashboard/Dashboard';
 
 function App() {
   return (
@@ -17,6 +20,14 @@ function App() {
             <>
               <Header />
               <HomePage />
+            </>
+          } />
+          <Route path="/signin" element={<SignIn />} />
+          <Route path="/signup" element={<SignUp />} />
+          <Route path="/dashboard" element={
+            <>
+              <Header />
+              <Dashboard />
             </>
           } />
           <Route path="/create-meeting" element={
