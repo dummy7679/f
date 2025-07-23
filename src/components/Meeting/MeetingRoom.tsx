@@ -24,8 +24,15 @@ interface Participant {
   name: string;
   user_id?: string;
   joined_at: string;
+  left_at?: string;
 }
 
+interface RemoteParticipant {
+  peerId: string;
+  name: string;
+  stream: MediaStream;
+  isConnected: boolean;
+}
 export function MeetingRoom() {
   const { meetingCode } = useParams<{ meetingCode: string }>();
   const location = useLocation();
@@ -39,6 +46,7 @@ export function MeetingRoom() {
   const [isLoading, setIsLoading] = useState(true);
   const [participantName, setParticipantName] = useState('');
   const [participantId] = useState(() => crypto.randomUUID());
+  const [currentParticipantDbId, setCurrentParticipantDbId] = useState<string | null>(null);
   
   // UI state
   const [activeTab, setActiveTab] = useState<'chat' | 'participants'>('chat');
@@ -54,12 +62,11 @@ export function MeetingRoom() {
   // WebRTC
   const [webrtcManager, setWebrtcManager] = useState<WebRTCManager | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [remoteStreams, setRemoteStreams] = useState<Map<string, { stream: MediaStream; name: string }>>(new Map());
+  const [remoteParticipants, setRemoteParticipants] = useState<Map<string, RemoteParticipant>>(new Map());
 
   // Refs
   const chatContainerRef = useRef<HTMLDivElement>(null);
-  const chatRefreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const participantsRefreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const realtimeSubscription = useRef<any>(null);
 
   useEffect(() => {
     if (meetingCode) {
@@ -78,17 +85,23 @@ export function MeetingRoom() {
   }, [chatMessages]);
 
   const cleanup = () => {
+    // Mark participant as left in database
+    if (currentParticipantDbId && meeting?.id) {
+      supabase
+        .from('participants')
+        .update({ left_at: new Date().toISOString() })
+        .eq('id', currentParticipantDbId)
+        .then(() => console.log('Participant marked as left'));
+    }
+
     if (webrtcManager) {
       webrtcManager.leaveMeeting();
     }
     if (localStream) {
       localStream.getTracks().forEach(track => track.stop());
     }
-    if (chatRefreshIntervalRef.current) {
-      clearInterval(chatRefreshIntervalRef.current);
-    }
-    if (participantsRefreshIntervalRef.current) {
-      clearInterval(participantsRefreshIntervalRef.current);
+    if (realtimeSubscription.current) {
+      realtimeSubscription.current.unsubscribe();
     }
   };
 
@@ -118,16 +131,20 @@ export function MeetingRoom() {
       setMeeting(meetingData);
 
       // Add participant to database
-      const { error: participantError } = await supabase
+      const { data: participantData, error: participantError } = await supabase
         .from('participants')
         .insert({
           meeting_id: meetingData.id,
           name: name,
           user_id: null,
-        });
+        })
+        .select()
+        .single();
 
       if (participantError) {
         console.error('Error adding participant:', participantError);
+      } else if (participantData) {
+        setCurrentParticipantDbId(participantData.id);
       }
 
       // Initialize WebRTC
@@ -137,21 +154,21 @@ export function MeetingRoom() {
       // Setup WebRTC callbacks
       manager.onStream((peerId, stream, participantName) => {
         console.log('Received stream from:', participantName);
-        setRemoteStreams(prev => {
+        setRemoteParticipants(prev => {
           const newMap = new Map(prev);
-          newMap.set(peerId, { stream, name: participantName });
+          newMap.set(peerId, { 
+            peerId, 
+            name: participantName, 
+            stream, 
+            isConnected: true 
+          });
           return newMap;
         });
-        
-        // Force re-render to show new participant immediately
-        setTimeout(() => {
-          fetchParticipants(meetingData.id);
-        }, 100);
       });
 
       manager.onPeerLeft((peerId) => {
         console.log('Peer left:', peerId);
-        setRemoteStreams(prev => {
+        setRemoteParticipants(prev => {
           const newMap = new Map(prev);
           newMap.delete(peerId);
           return newMap;
@@ -161,11 +178,6 @@ export function MeetingRoom() {
           newSet.delete(peerId);
           return newSet;
         });
-        
-        // Update participants list immediately
-        setTimeout(() => {
-          fetchParticipants(meetingData.id);
-        }, 100);
       });
 
       manager.onHandRaised((participantId, name, raised) => {
@@ -194,7 +206,7 @@ export function MeetingRoom() {
       await manager.joinMeeting();
 
       // Start real-time updates
-      startRealtimeUpdates(meetingData.id);
+      setupRealtimeSubscriptions(meetingData.id);
       
       setIsLoading(false);
       toast.success('Joined meeting successfully!');
@@ -206,20 +218,53 @@ export function MeetingRoom() {
     }
   };
 
-  const startRealtimeUpdates = (meetingId: string) => {
+  const setupRealtimeSubscriptions = (meetingId: string) => {
     // Fetch initial data
     fetchChatMessages(meetingId);
     fetchParticipants(meetingId);
 
-    // Set up chat refresh every 500ms for better real-time feel
-    chatRefreshIntervalRef.current = setInterval(() => {
-      fetchChatMessages(meetingId);
-    }, 500);
-
-    // Set up participants refresh every 1 second
-    participantsRefreshIntervalRef.current = setInterval(() => {
-      fetchParticipants(meetingId);
-    }, 1000);
+    // Set up real-time subscriptions
+    realtimeSubscription.current = supabase
+      .channel(`meeting-${meetingId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `meeting_id=eq.${meetingId}`,
+        },
+        (payload) => {
+          setChatMessages(prev => [...prev, payload.new as ChatMessage]);
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'participants',
+          filter: `meeting_id=eq.${meetingId}`,
+        },
+        (payload) => {
+          setParticipants(prev => [...prev, payload.new as Participant]);
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'participants',
+          filter: `meeting_id=eq.${meetingId}`,
+        },
+        (payload) => {
+          setParticipants(prev => 
+            prev.map(p => p.id === payload.new.id ? payload.new as Participant : p)
+          );
+        }
+      )
+      .subscribe();
   };
 
   const fetchChatMessages = async (meetingId: string) => {
@@ -253,6 +298,9 @@ export function MeetingRoom() {
     }
   };
 
+  // Calculate total participants correctly
+  const totalParticipants = participants.filter(p => !p.left_at).length;
+  const connectedParticipants = remoteParticipants.size + 1; // +1 for local participant
   const toggleMute = () => {
     if (webrtcManager) {
       const newMutedState = !isMuted;
@@ -330,8 +378,6 @@ export function MeetingRoom() {
 
       if (error) throw error;
       setNewMessage('');
-      // Immediately fetch messages to show the new message
-      fetchChatMessages(meeting.id);
     } catch (error) {
       console.error('Error sending message:', error);
       toast.error('Failed to send message');
@@ -341,12 +387,11 @@ export function MeetingRoom() {
   const leaveMeeting = async () => {
     try {
       // Update participant as left
-      if (meeting?.id) {
+      if (currentParticipantDbId) {
         await supabase
           .from('participants')
           .update({ left_at: new Date().toISOString() })
-          .eq('meeting_id', meeting.id)
-          .eq('name', participantName);
+          .eq('id', currentParticipantDbId);
       }
 
       cleanup();
@@ -382,7 +427,7 @@ export function MeetingRoom() {
         {/* Video Grid */}
         <VideoGrid
           localStream={localStream || undefined}
-          remoteStreams={remoteStreams}
+          remoteParticipants={remoteParticipants}
           localParticipantName={participantName}
           isMuted={isMuted}
           isCameraOff={isCameraOff}
@@ -400,7 +445,7 @@ export function MeetingRoom() {
                 {format(new Date(), 'HH:mm')}
               </span>
               <span className="text-xs lg:text-sm bg-white/20 px-2 py-1 rounded whitespace-nowrap">
-                {participants.length} participant{participants.length !== 1 ? 's' : ''}
+                {connectedParticipants} participant{connectedParticipants !== 1 ? 's' : ''}
               </span>
             </div>
             <div className="flex items-center space-x-1 lg:space-x-2">
@@ -546,7 +591,7 @@ export function MeetingRoom() {
               }`}
             >
               <Users className="w-3 h-3 lg:w-4 lg:h-4 inline mr-1 lg:mr-2" />
-              People ({participants.length})
+              People ({totalParticipants})
             </button>
           </div>
         </div>
@@ -608,7 +653,7 @@ export function MeetingRoom() {
             /* Participants list */
             <div className="flex-1 overflow-y-auto p-3 lg:p-4">
               <div className="space-y-2 lg:space-y-3">
-                {participants.map((participant) => (
+                {participants.filter(p => !p.left_at).map((participant) => (
                   <div key={participant.id} className="flex items-center space-x-2 lg:space-x-3 p-2 lg:p-3 rounded-lg hover:bg-gray-50">
                     <div className="w-8 h-8 lg:w-10 lg:h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center">
                       <span className="text-white font-medium text-xs lg:text-sm">
@@ -632,7 +677,7 @@ export function MeetingRoom() {
                     </div>
                   </div>
                 ))}
-                {participants.length === 0 && (
+                {participants.filter(p => !p.left_at).length === 0 && (
                   <div className="text-center text-gray-500 py-8">
                     <Users className="w-8 h-8 mx-auto mb-2 opacity-50" />
                     <p className="text-xs lg:text-sm">No participants yet</p>

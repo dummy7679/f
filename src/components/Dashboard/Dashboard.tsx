@@ -57,13 +57,13 @@ export function Dashboard() {
   };
 
   const fetchMeetings = async (userId: string) => {
-    if (!userId) return;
+    if (!userId || !userProfile?.full_name) return;
 
     try {
       const { data, error } = await supabase
         .from('meetings')
         .select('*')
-        .eq('host_name', userProfile?.full_name || '')
+        .eq('host_name', userProfile.full_name)
         .order('start_time', { ascending: false });
 
       if (error) throw error;

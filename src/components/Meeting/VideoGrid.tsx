@@ -1,6 +1,13 @@
 import React, { useRef, useEffect } from 'react';
 import { Mic, MicOff, Video, VideoOff, Hand } from 'lucide-react';
 
+interface RemoteParticipant {
+  peerId: string;
+  name: string;
+  stream: MediaStream;
+  isConnected: boolean;
+}
+
 interface VideoTileProps {
   stream?: MediaStream;
   participantName: string;
@@ -111,7 +118,7 @@ function VideoTile({
 
 interface VideoGridProps {
   localStream?: MediaStream;
-  remoteStreams: Map<string, { stream: MediaStream; name: string }>;
+  remoteParticipants: Map<string, RemoteParticipant>;
   localParticipantName: string;
   isMuted: boolean;
   isCameraOff: boolean;
@@ -122,7 +129,7 @@ interface VideoGridProps {
 
 export function VideoGrid({
   localStream,
-  remoteStreams,
+  remoteParticipants,
   localParticipantName,
   isMuted,
   isCameraOff,
@@ -130,7 +137,7 @@ export function VideoGrid({
   handRaisedParticipants,
   localHandRaised
 }: VideoGridProps) {
-  const totalParticipants = 1 + remoteStreams.size;
+  const totalParticipants = 1 + remoteParticipants.size;
   
   // Determine responsive grid layout
   const getGridClass = () => {
@@ -163,11 +170,11 @@ export function VideoGrid({
         />
 
         {/* Remote videos */}
-        {Array.from(remoteStreams.entries()).map(([peerId, { stream, name }]) => (
+        {Array.from(remoteParticipants.entries()).map(([peerId, participant]) => (
           <VideoTile
             key={peerId}
-            stream={stream}
-            participantName={name}
+            stream={participant.stream}
+            participantName={participant.name}
             isLocal={false}
             handRaised={handRaisedParticipants.has(peerId)}
           />

@@ -17,7 +17,7 @@ export class WebRTCManager {
   private onStreamCallback?: (peerId: string, stream: MediaStream, name: string) => void;
   private onPeerLeftCallback?: (peerId: string) => void;
   private onHandRaisedCallback?: (participantId: string, name: string, raised: boolean) => void;
-  private signalingChannel: any;
+  private signalingChannel: any = null;
   private isInitialized = false;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
@@ -49,11 +49,14 @@ export class WebRTCManager {
     this.meetingId = meetingId;
     this.participantId = participantId;
     this.participantName = participantName;
-    this.setupSignaling();
+  }
+
+  async initialize() {
+    await this.setupSignaling();
     this.startHeartbeat();
   }
 
-  private setupSignaling() {
+  private async setupSignaling() {
     this.signalingChannel = supabase
       .channel(`webrtc-${this.meetingId}`, {
         config: {
@@ -91,24 +94,37 @@ export class WebRTCManager {
       .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
         this.handlePresenceLeave(key, leftPresences);
       })
-      .subscribe(async (status) => {
+
+    return new Promise<void>((resolve, reject) => {
+      this.signalingChannel.subscribe(async (status: string) => {
         if (status === 'SUBSCRIBED') {
           console.log('Signaling channel connected');
           await this.announcePresence();
+          resolve();
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('Signaling channel error');
+          reject(new Error('Failed to connect to signaling channel'));
         }
       });
+    });
   }
 
   private startHeartbeat() {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+    }
+    
     this.heartbeatInterval = setInterval(() => {
-      this.signalingChannel?.send({
-        type: 'broadcast',
-        event: 'heartbeat',
-        payload: {
-          participantId: this.participantId,
-          timestamp: Date.now()
-        }
-      });
+      if (this.signalingChannel) {
+        this.signalingChannel.send({
+          type: 'broadcast',
+          event: 'heartbeat',
+          payload: {
+            participantId: this.participantId,
+            timestamp: Date.now()
+          }
+        });
+      }
     }, 10000); // Send heartbeat every 10 seconds
   }
 
@@ -323,18 +339,23 @@ export class WebRTCManager {
 
   async joinMeeting() {
     if (this.isInitialized) return;
+    
+    // Initialize signaling first
+    await this.initialize();
     this.isInitialized = true;
 
     // Announce joining with enhanced signaling
-    await this.signalingChannel.send({
-      type: 'broadcast',
-      event: 'user-joined',
-      payload: { 
-        participantId: this.participantId,
-        name: this.participantName,
-        timestamp: Date.now()
-      }
-    });
+    if (this.signalingChannel) {
+      await this.signalingChannel.send({
+        type: 'broadcast',
+        event: 'user-joined',
+        payload: { 
+          participantId: this.participantId,
+          name: this.participantName,
+          timestamp: Date.now()
+        }
+      });
+    }
 
     // Also update presence
     await this.announcePresence();
@@ -652,14 +673,16 @@ export class WebRTCManager {
     }
 
     // Announce leaving
-    await this.signalingChannel.send({
-      type: 'broadcast',
-      event: 'user-left',
-      payload: { 
-        participantId: this.participantId,
-        timestamp: Date.now()
-      }
-    });
+    if (this.signalingChannel) {
+      await this.signalingChannel.send({
+        type: 'broadcast',
+        event: 'user-left',
+        payload: { 
+          participantId: this.participantId,
+          timestamp: Date.now()
+        }
+      });
+    }
 
     // Clean up peer connections
     this.peers.forEach(({ peer, dataChannel }) => {
@@ -676,7 +699,10 @@ export class WebRTCManager {
     }
 
     // Unsubscribe from signaling
-    this.signalingChannel.unsubscribe();
+    if (this.signalingChannel) {
+      this.signalingChannel.unsubscribe();
+      this.signalingChannel = null;
+    }
   }
 
   // Get connection statistics for monitoring

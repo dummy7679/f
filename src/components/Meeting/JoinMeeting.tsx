@@ -69,18 +69,6 @@ export function JoinMeeting() {
 
     setJoining(true);
     try {
-      // Record participant
-      const { error } = await supabase
-        .from('participants')
-        .insert({
-          user_id: null,
-          meeting_id: meeting.id,
-          name: guestName.trim(),
-          joined_at: new Date().toISOString(),
-        });
-
-      if (error) throw error;
-
       // Navigate to meeting room
       navigate(`/meeting/${meeting.access_code}`, {
         state: {
