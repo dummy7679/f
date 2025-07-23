@@ -6,8 +6,11 @@ import {
   Copy, Send, MoreVertical
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { WebRTCManager } from '../../lib/webrtc';
+import { VideoGrid } from './VideoGrid';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
+import { v4 as uuidv4 } from 'uuid';
 
 interface ChatMessage {
   id: string;
@@ -36,6 +39,7 @@ export function MeetingRoom() {
   const [newMessage, setNewMessage] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [participantName, setParticipantName] = useState('');
+  const [participantId] = useState(uuidv4());
   
   // UI state
   const [activeTab, setActiveTab] = useState<'chat' | 'participants'>('chat');
@@ -47,20 +51,46 @@ export function MeetingRoom() {
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [handRaised, setHandRaised] = useState(false);
 
-  // Video refs
-  const localVideoRef = useRef<HTMLVideoElement>(null);
+  // WebRTC
+  const [webrtcManager, setWebrtcManager] = useState<WebRTCManager | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [remoteStreams, setRemoteStreams] = useState<Map<string, { stream: MediaStream; name: string }>>(new Map());
+
+  // Refs
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  const chatChannelRef = useRef<any>(null);
+  const participantsChannelRef = useRef<any>(null);
 
   useEffect(() => {
     if (meetingCode) {
       initializeMeeting();
     }
     return () => {
-      if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-      }
+      cleanup();
     };
   }, [meetingCode]);
+
+  // Auto-scroll chat to bottom
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  }, [chatMessages]);
+
+  const cleanup = () => {
+    if (webrtcManager) {
+      webrtcManager.leaveMeeting();
+    }
+    if (localStream) {
+      localStream.getTracks().forEach(track => track.stop());
+    }
+    if (chatChannelRef.current) {
+      chatChannelRef.current.unsubscribe();
+    }
+    if (participantsChannelRef.current) {
+      participantsChannelRef.current.unsubscribe();
+    }
+  };
 
   const initializeMeeting = async () => {
     try {
@@ -100,8 +130,33 @@ export function MeetingRoom() {
         console.error('Error adding participant:', participantError);
       }
 
+      // Initialize WebRTC
+      const manager = new WebRTCManager(meetingData.id, participantId);
+      setWebrtcManager(manager);
+
+      // Setup WebRTC callbacks
+      manager.onStream((peerId, stream) => {
+        setRemoteStreams(prev => {
+          const newMap = new Map(prev);
+          newMap.set(peerId, { stream, name: `Participant ${peerId.slice(0, 8)}` });
+          return newMap;
+        });
+      });
+
+      manager.onPeerLeft((peerId) => {
+        setRemoteStreams(prev => {
+          const newMap = new Map(prev);
+          newMap.delete(peerId);
+          return newMap;
+        });
+      });
+
       // Initialize media
-      await initializeMedia();
+      const stream = await manager.initializeMedia(true, true);
+      setLocalStream(stream);
+
+      // Join the meeting
+      await manager.joinMeeting();
 
       // Subscribe to real-time updates
       subscribeToRealtimeUpdates(meetingData.id);
@@ -116,27 +171,9 @@ export function MeetingRoom() {
     }
   };
 
-  const initializeMedia = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true
-      });
-      
-      setLocalStream(stream);
-      
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-      }
-    } catch (error) {
-      console.error('Error accessing media devices:', error);
-      toast.error('Could not access camera/microphone');
-    }
-  };
-
   const subscribeToRealtimeUpdates = (meetingId: string) => {
-    // Subscribe to chat messages
-    const chatChannel = supabase
+    // Subscribe to chat messages with real-time refresh
+    chatChannelRef.current = supabase
       .channel(`meeting-chat-${meetingId}`)
       .on('postgres_changes', 
         { 
@@ -152,7 +189,7 @@ export function MeetingRoom() {
       .subscribe();
 
     // Subscribe to participants
-    const participantsChannel = supabase
+    participantsChannelRef.current = supabase
       .channel(`meeting-participants-${meetingId}`)
       .on('postgres_changes', 
         { 
@@ -171,9 +208,19 @@ export function MeetingRoom() {
     fetchChatMessages(meetingId);
     fetchParticipants(meetingId);
 
+    // Set up periodic refresh for chat (every 2 seconds)
+    const chatRefreshInterval = setInterval(() => {
+      fetchChatMessages(meetingId);
+    }, 2000);
+
+    // Set up periodic refresh for participants (every 5 seconds)
+    const participantsRefreshInterval = setInterval(() => {
+      fetchParticipants(meetingId);
+    }, 5000);
+
     return () => {
-      chatChannel.unsubscribe();
-      participantsChannel.unsubscribe();
+      clearInterval(chatRefreshInterval);
+      clearInterval(participantsRefreshInterval);
     };
   };
 
@@ -209,53 +256,43 @@ export function MeetingRoom() {
   };
 
   const toggleMute = () => {
-    if (localStream) {
-      const audioTrack = localStream.getAudioTracks()[0];
-      if (audioTrack) {
-        audioTrack.enabled = isMuted;
-        setIsMuted(!isMuted);
-        toast.success(isMuted ? 'Microphone unmuted' : 'Microphone muted');
-      }
+    if (webrtcManager) {
+      webrtcManager.toggleAudio(!isMuted);
+      setIsMuted(!isMuted);
+      toast.success(isMuted ? 'Microphone unmuted' : 'Microphone muted');
     }
   };
 
   const toggleCamera = () => {
-    if (localStream) {
-      const videoTrack = localStream.getVideoTracks()[0];
-      if (videoTrack) {
-        videoTrack.enabled = isCameraOff;
-        setIsCameraOff(!isCameraOff);
-        toast.success(isCameraOff ? 'Camera turned on' : 'Camera turned off');
-      }
+    if (webrtcManager) {
+      webrtcManager.toggleVideo(!isCameraOff);
+      setIsCameraOff(!isCameraOff);
+      toast.success(isCameraOff ? 'Camera turned on' : 'Camera turned off');
     }
   };
 
   const toggleScreenShare = async () => {
+    if (!webrtcManager) return;
+
     try {
       if (isScreenSharing) {
         // Stop screen sharing and return to camera
-        await initializeMedia();
+        const stream = await webrtcManager.initializeMedia(true, true);
+        setLocalStream(stream);
         setIsScreenSharing(false);
         toast.success('Screen sharing stopped');
       } else {
         // Start screen sharing
-        const screenStream = await navigator.mediaDevices.getDisplayMedia({
-          video: true,
-          audio: true
-        });
-        
+        const screenStream = await webrtcManager.startScreenShare();
         setLocalStream(screenStream);
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = screenStream;
-        }
-        
         setIsScreenSharing(true);
         toast.success('Screen sharing started');
         
         // Listen for screen share end
-        screenStream.getVideoTracks()[0].onended = () => {
+        screenStream.getVideoTracks()[0].onended = async () => {
           setIsScreenSharing(false);
-          initializeMedia();
+          const stream = await webrtcManager.initializeMedia(true, true);
+          setLocalStream(stream);
         };
       }
     } catch (error) {
@@ -297,11 +334,7 @@ export function MeetingRoom() {
           .eq('name', participantName);
       }
 
-      // Stop media streams
-      if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-      }
-
+      cleanup();
       toast.success('Left meeting');
       navigate('/');
     } catch (error) {
@@ -331,29 +364,15 @@ export function MeetingRoom() {
     <div className="h-screen bg-gray-900 flex">
       {/* Main video area */}
       <div className="flex-1 relative">
-        {/* Local video */}
-        <div className="absolute inset-0 bg-gray-800">
-          <video
-            ref={localVideoRef}
-            autoPlay
-            muted
-            playsInline
-            className="w-full h-full object-cover"
-          />
-          {isCameraOff && (
-            <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
-              <div className="text-center text-white">
-                <div className="w-24 h-24 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <span className="text-2xl font-semibold">
-                    {participantName.charAt(0).toUpperCase()}
-                  </span>
-                </div>
-                <p className="text-lg">{participantName}</p>
-                <p className="text-sm opacity-75">Camera is off</p>
-              </div>
-            </div>
-          )}
-        </div>
+        {/* Video Grid */}
+        <VideoGrid
+          localStream={localStream || undefined}
+          remoteStreams={remoteStreams}
+          localParticipantName={participantName}
+          isMuted={isMuted}
+          isCameraOff={isCameraOff}
+          isScreenSharing={isScreenSharing}
+        />
         
         {/* Top bar */}
         <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/50 to-transparent p-6 z-10">
@@ -495,7 +514,10 @@ export function MeetingRoom() {
           {activeTab === 'chat' ? (
             <>
               {/* Chat messages */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              <div 
+                ref={chatContainerRef}
+                className="flex-1 overflow-y-auto p-4 space-y-4"
+              >
                 {chatMessages.map((message) => (
                   <div key={message.id} className="flex flex-col space-y-1">
                     <div className="flex items-center space-x-2">
