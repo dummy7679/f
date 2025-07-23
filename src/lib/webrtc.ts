@@ -30,9 +30,19 @@ export class WebRTCManager {
     { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun3.l.google.com:19302' },
     { urls: 'stun:stun4.l.google.com:19302' },
-    // Additional STUN servers for better connectivity
     { urls: 'stun:stun.services.mozilla.com' },
     { urls: 'stun:stun.stunprotocol.org:3478' },
+    // Additional TURN servers for better connectivity
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
   ];
 
   constructor(meetingId: string, participantId: string, participantName: string) {
@@ -150,48 +160,86 @@ export class WebRTCManager {
 
   async initializeMedia(video: boolean = true, audio: boolean = true): Promise<MediaStream> {
     try {
-      // Enhanced media constraints for better quality
+      // Ultra-high quality media constraints
       const constraints: MediaStreamConstraints = {
         video: video ? {
-          width: { min: 640, ideal: 1280, max: 1920 },
-          height: { min: 480, ideal: 720, max: 1080 },
-          frameRate: { min: 15, ideal: 30, max: 60 },
+          width: { min: 320, ideal: 1920, max: 3840 },
+          height: { min: 240, ideal: 1080, max: 2160 },
+          frameRate: { min: 24, ideal: 60, max: 120 },
           facingMode: 'user',
-          aspectRatio: 16/9
+          aspectRatio: 16/9,
+          // Advanced video settings
+          advanced: [
+            { width: { min: 1920 } },
+            { height: { min: 1080 } },
+            { frameRate: { min: 60 } },
+            { aspectRatio: { exact: 1.777777778 } }
+          ]
         } : false,
         audio: audio ? {
+          // Professional audio settings
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
-          sampleRate: 48000,
+          sampleRate: { ideal: 48000, min: 44100 },
           channelCount: 2,
           sampleSize: 16,
-          // Advanced audio processing
-          googEchoCancellation: true,
-          googAutoGainControl: true,
-          googNoiseSuppression: true,
-          googHighpassFilter: true,
-          googTypingNoiseDetection: true,
-          googAudioMirroring: false
+          latency: { ideal: 0.01, max: 0.05 },
+          // Chrome-specific advanced audio processing
+          advanced: [
+            { echoCancellation: { exact: true } },
+            { noiseSuppression: { exact: true } },
+            { autoGainControl: { exact: true } },
+            { googEchoCancellation: { exact: true } },
+            { googAutoGainControl: { exact: true } },
+            { googNoiseSuppression: { exact: true } },
+            { googHighpassFilter: { exact: true } },
+            { googTypingNoiseDetection: { exact: true } },
+            { googAudioMirroring: { exact: false } },
+            { googDAEchoCancellation: { exact: true } },
+            { googNoiseReduction: { exact: true } }
+          ]
         } : false
       };
 
       this.localStream = await navigator.mediaDevices.getUserMedia(constraints);
       
-      // Apply additional audio processing
+      // Apply professional audio processing
       if (audio && this.localStream.getAudioTracks().length > 0) {
         const audioTrack = this.localStream.getAudioTracks()[0];
-        const audioContext = new AudioContext();
+        const audioContext = new AudioContext({
+          sampleRate: 48000,
+          latencyHint: 'interactive'
+        });
         const source = audioContext.createMediaStreamSource(this.localStream);
         
-        // Add noise suppression and echo cancellation
+        // Professional audio enhancement chain
         const gainNode = audioContext.createGain();
-        gainNode.gain.value = 1.2; // Slight boost for clarity
+        const compressor = audioContext.createDynamicsCompressor();
+        const filter = audioContext.createBiquadFilter();
         
+        // Configure compressor for voice
+        compressor.threshold.value = -24;
+        compressor.knee.value = 30;
+        compressor.ratio.value = 12;
+        compressor.attack.value = 0.003;
+        compressor.release.value = 0.25;
+        
+        // Configure high-pass filter to remove low-frequency noise
+        filter.type = 'highpass';
+        filter.frequency.value = 85;
+        filter.Q.value = 1;
+        
+        // Audio processing chain
         source.connect(gainNode);
+        gainNode.connect(filter);
+        filter.connect(compressor);
         
         const destination = audioContext.createMediaStreamDestination();
-        gainNode.connect(destination);
+        compressor.connect(destination);
+        
+        // Set optimal gain
+        gainNode.gain.value = 1.5;
       }
 
       return this.localStream;
@@ -217,14 +265,15 @@ export class WebRTCManager {
         video: {
           cursor: 'always',
           displaySurface: 'monitor',
-          width: { max: 1920 },
-          height: { max: 1080 },
-          frameRate: { max: 30 }
+          width: { ideal: 1920, max: 3840 },
+          height: { ideal: 1080, max: 2160 },
+          frameRate: { ideal: 60, max: 120 }
         },
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          sampleRate: 48000
+          sampleRate: 48000,
+          channelCount: 2
         }
       });
       
@@ -332,14 +381,19 @@ export class WebRTCManager {
         if (track.kind === 'video') {
           const params = sender.getParameters();
           if (params.encodings && params.encodings.length > 0) {
-            params.encodings[0].maxBitrate = 2500000; // 2.5 Mbps for video
-            params.encodings[0].maxFramerate = 30;
+            // Ultra-high quality video encoding
+            params.encodings[0].maxBitrate = 8000000; // 8 Mbps for 4K quality
+            params.encodings[0].maxFramerate = 60;
+            params.encodings[0].scaleResolutionDownBy = 1;
+            params.encodings[0].scalabilityMode = 'L1T3';
             sender.setParameters(params);
           }
         } else if (track.kind === 'audio') {
           const params = sender.getParameters();
           if (params.encodings && params.encodings.length > 0) {
-            params.encodings[0].maxBitrate = 128000; // 128 kbps for audio
+            // High-fidelity audio encoding
+            params.encodings[0].maxBitrate = 320000; // 320 kbps for studio quality
+            params.encodings[0].priority = 'high';
             sender.setParameters(params);
           }
         }

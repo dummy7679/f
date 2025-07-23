@@ -376,9 +376,9 @@ export function MeetingRoom() {
   }
 
   return (
-    <div className="h-screen bg-gray-900 flex">
+    <div className="h-screen bg-gray-900 flex flex-col lg:flex-row overflow-hidden">
       {/* Main video area */}
-      <div className="flex-1 relative">
+      <div className="flex-1 relative min-h-0">
         {/* Video Grid */}
         <VideoGrid
           localStream={localStream || undefined}
@@ -392,41 +392,41 @@ export function MeetingRoom() {
         />
         
         {/* Top bar */}
-        <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/50 to-transparent p-6 z-10">
+        <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/70 to-transparent p-3 lg:p-6 z-10">
           <div className="flex items-center justify-between text-white">
-            <div className="flex items-center space-x-4">
-              <h1 className="text-xl font-semibold">{meeting?.title}</h1>
-              <span className="text-sm opacity-75">
+            <div className="flex items-center space-x-2 lg:space-x-4 min-w-0">
+              <h1 className="text-sm lg:text-xl font-semibold truncate">{meeting?.title}</h1>
+              <span className="text-xs lg:text-sm opacity-75 hidden sm:block">
                 {format(new Date(), 'HH:mm')}
               </span>
-              <span className="text-sm bg-white/20 px-2 py-1 rounded">
+              <span className="text-xs lg:text-sm bg-white/20 px-2 py-1 rounded whitespace-nowrap">
                 {participants.length} participant{participants.length !== 1 ? 's' : ''}
               </span>
             </div>
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-1 lg:space-x-2">
               <button
                 onClick={copyMeetingLink}
-                className="px-3 py-1 bg-white/20 rounded-lg hover:bg-white/30 transition-all text-sm flex items-center gap-2"
+                className="px-2 lg:px-3 py-1 bg-white/20 rounded-lg hover:bg-white/30 transition-all text-xs lg:text-sm flex items-center gap-1 lg:gap-2"
               >
-                <Copy className="w-4 h-4" />
-                Copy Link
+                <Copy className="w-3 h-3 lg:w-4 lg:h-4" />
+                <span className="hidden sm:inline">Copy Link</span>
               </button>
               <button
                 onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="p-2 bg-white/20 rounded-lg hover:bg-white/30 transition-all lg:hidden"
+                className="p-2 bg-white/20 rounded-lg hover:bg-white/30 transition-all"
               >
-                <MoreVertical className="w-5 h-5" />
+                <MoreVertical className="w-4 h-4 lg:w-5 lg:h-5" />
               </button>
             </div>
           </div>
         </div>
 
         {/* Bottom controls */}
-        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-6 z-10">
-          <div className="flex items-center justify-center space-x-4">
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 to-transparent p-3 lg:p-6 z-10">
+          <div className="flex items-center justify-center space-x-2 lg:space-x-4 flex-wrap gap-2">
             <button
               onClick={toggleMute}
-              className={`p-4 rounded-full transition-all ${
+              className={`p-3 lg:p-4 rounded-full transition-all ${
                 isMuted 
                   ? 'bg-red-500 hover:bg-red-600' 
                   : 'bg-white/20 hover:bg-white/30'
@@ -434,15 +434,15 @@ export function MeetingRoom() {
               title={isMuted ? 'Unmute' : 'Mute'}
             >
               {isMuted ? (
-                <MicOff className="w-6 h-6 text-white" />
+                <MicOff className="w-5 h-5 lg:w-6 lg:h-6 text-white" />
               ) : (
-                <Mic className="w-6 h-6 text-white" />
+                <Mic className="w-5 h-5 lg:w-6 lg:h-6 text-white" />
               )}
             </button>
 
             <button
               onClick={toggleCamera}
-              className={`p-4 rounded-full transition-all ${
+              className={`p-3 lg:p-4 rounded-full transition-all ${
                 isCameraOff 
                   ? 'bg-red-500 hover:bg-red-600' 
                   : 'bg-white/20 hover:bg-white/30'
@@ -450,15 +450,15 @@ export function MeetingRoom() {
               title={isCameraOff ? 'Turn on camera' : 'Turn off camera'}
             >
               {isCameraOff ? (
-                <VideoOff className="w-6 h-6 text-white" />
+                <VideoOff className="w-5 h-5 lg:w-6 lg:h-6 text-white" />
               ) : (
-                <Video className="w-6 h-6 text-white" />
+                <Video className="w-5 h-5 lg:w-6 lg:h-6 text-white" />
               )}
             </button>
 
             <button
               onClick={toggleScreenShare}
-              className={`p-4 rounded-full transition-all ${
+              className={`p-3 lg:p-4 rounded-full transition-all ${
                 isScreenSharing 
                   ? 'bg-blue-500 hover:bg-blue-600' 
                   : 'bg-white/20 hover:bg-white/30'
@@ -466,70 +466,86 @@ export function MeetingRoom() {
               title={isScreenSharing ? 'Stop sharing' : 'Share screen'}
             >
               {isScreenSharing ? (
-                <MonitorOff className="w-6 h-6 text-white" />
+                <MonitorOff className="w-5 h-5 lg:w-6 lg:h-6 text-white" />
               ) : (
-                <Monitor className="w-6 h-6 text-white" />
+                <Monitor className="w-5 h-5 lg:w-6 lg:h-6 text-white" />
               )}
             </button>
 
             <button
               onClick={toggleHandRaise}
-              className={`p-4 rounded-full transition-all ${
+              className={`p-3 lg:p-4 rounded-full transition-all ${
                 handRaised 
                   ? 'bg-yellow-500 hover:bg-yellow-600' 
                   : 'bg-white/20 hover:bg-white/30'
               }`}
               title={handRaised ? 'Lower hand' : 'Raise hand'}
             >
-              <Hand className="w-6 h-6 text-white" />
+              <Hand className="w-5 h-5 lg:w-6 lg:h-6 text-white" />
             </button>
 
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-4 rounded-full bg-white/20 hover:bg-white/30 transition-all lg:hidden"
+              className="p-3 lg:p-4 rounded-full bg-white/20 hover:bg-white/30 transition-all"
               title="Toggle chat"
             >
-              <MessageSquare className="w-6 h-6 text-white" />
+              <MessageSquare className="w-5 h-5 lg:w-6 lg:h-6 text-white" />
             </button>
 
             <button
               onClick={leaveMeeting}
-              className="p-4 rounded-full bg-red-500 hover:bg-red-600 transition-all"
+              className="p-3 lg:p-4 rounded-full bg-red-500 hover:bg-red-600 transition-all"
               title="Leave meeting"
             >
-              <PhoneOff className="w-6 h-6 text-white" />
+              <PhoneOff className="w-5 h-5 lg:w-6 lg:h-6 text-white" />
             </button>
           </div>
         </div>
       </div>
 
       {/* Sidebar */}
-      <div className={`w-80 bg-white border-l border-gray-200 flex flex-col transition-all duration-300 ${
-        sidebarOpen ? 'translate-x-0' : 'translate-x-full'
-      } lg:translate-x-0`}>
+      <div className={`
+        fixed lg:relative top-0 right-0 h-full w-full sm:w-80 lg:w-80 
+        bg-white border-l border-gray-200 flex flex-col 
+        transition-all duration-300 z-50 lg:z-auto
+        ${sidebarOpen ? 'translate-x-0' : 'translate-x-full'}
+        lg:translate-x-0
+      `}>
+        {/* Mobile close button */}
+        <div className="lg:hidden absolute top-4 left-4 z-10">
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="p-2 bg-gray-100 rounded-full hover:bg-gray-200 transition-all"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
         {/* Sidebar header */}
-        <div className="p-4 border-b border-gray-200">
+        <div className="p-4 border-b border-gray-200 pt-16 lg:pt-4">
           <div className="flex space-x-1">
             <button
               onClick={() => setActiveTab('chat')}
-              className={`flex-1 px-3 py-2 text-sm font-medium rounded-lg transition-all ${
+              className={`flex-1 px-2 lg:px-3 py-2 text-xs lg:text-sm font-medium rounded-lg transition-all ${
                 activeTab === 'chat'
                   ? 'bg-blue-100 text-blue-700'
                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
               }`}
             >
-              <MessageSquare className="w-4 h-4 inline mr-2" />
+              <MessageSquare className="w-3 h-3 lg:w-4 lg:h-4 inline mr-1 lg:mr-2" />
               Chat
             </button>
             <button
               onClick={() => setActiveTab('participants')}
-              className={`flex-1 px-3 py-2 text-sm font-medium rounded-lg transition-all ${
+              className={`flex-1 px-2 lg:px-3 py-2 text-xs lg:text-sm font-medium rounded-lg transition-all ${
                 activeTab === 'participants'
                   ? 'bg-blue-100 text-blue-700'
                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
               }`}
             >
-              <Users className="w-4 h-4 inline mr-2" />
+              <Users className="w-3 h-3 lg:w-4 lg:h-4 inline mr-1 lg:mr-2" />
               People ({participants.length})
             </button>
           </div>
@@ -542,19 +558,19 @@ export function MeetingRoom() {
               {/* Chat messages */}
               <div 
                 ref={chatContainerRef}
-                className="flex-1 overflow-y-auto p-4 space-y-4"
+                className="flex-1 overflow-y-auto p-3 lg:p-4 space-y-3 lg:space-y-4"
               >
                 {chatMessages.map((message) => (
                   <div key={message.id} className="flex flex-col space-y-1">
                     <div className="flex items-center space-x-2">
-                      <span className="text-sm font-medium text-gray-900">
+                      <span className="text-xs lg:text-sm font-medium text-gray-900">
                         {message.sender_name}
                       </span>
                       <span className="text-xs text-gray-500">
                         {format(new Date(message.created_at), 'HH:mm')}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-700 bg-gray-50 rounded-lg px-3 py-2">
+                    <p className="text-xs lg:text-sm text-gray-700 bg-gray-50 rounded-lg px-2 lg:px-3 py-1 lg:py-2">
                       {message.content}
                     </p>
                   </div>
@@ -562,52 +578,52 @@ export function MeetingRoom() {
                 {chatMessages.length === 0 && (
                   <div className="text-center text-gray-500 py-8">
                     <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">No messages yet</p>
+                    <p className="text-xs lg:text-sm">No messages yet</p>
                     <p className="text-xs">Start the conversation!</p>
                   </div>
                 )}
               </div>
 
               {/* Chat input */}
-              <div className="p-4 border-t border-gray-200">
-                <form onSubmit={sendMessage} className="flex space-x-2">
+              <div className="p-3 lg:p-4 border-t border-gray-200">
+                <form onSubmit={sendMessage} className="flex space-x-1 lg:space-x-2">
                   <input
                     type="text"
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
                     placeholder="Type a message..."
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="flex-1 px-2 lg:px-3 py-2 text-xs lg:text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                   <button
                     type="submit"
                     disabled={!newMessage.trim()}
                     className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                   >
-                    <Send className="w-4 h-4" />
+                    <Send className="w-3 h-3 lg:w-4 lg:h-4" />
                   </button>
                 </form>
               </div>
             </>
           ) : (
             /* Participants list */
-            <div className="flex-1 overflow-y-auto p-4">
-              <div className="space-y-3">
+            <div className="flex-1 overflow-y-auto p-3 lg:p-4">
+              <div className="space-y-2 lg:space-y-3">
                 {participants.map((participant) => (
-                  <div key={participant.id} className="flex items-center space-x-3 p-3 rounded-lg hover:bg-gray-50">
-                    <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center">
-                      <span className="text-white font-medium text-sm">
+                  <div key={participant.id} className="flex items-center space-x-2 lg:space-x-3 p-2 lg:p-3 rounded-lg hover:bg-gray-50">
+                    <div className="w-8 h-8 lg:w-10 lg:h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center">
+                      <span className="text-white font-medium text-xs lg:text-sm">
                         {participant.name.charAt(0).toUpperCase()}
                       </span>
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center space-x-2">
-                        <p className="text-sm font-medium text-gray-900">
+                        <p className="text-xs lg:text-sm font-medium text-gray-900">
                           {participant.name}
                           {participant.name === participantName && ' (You)'}
                           {participant.name === meeting?.host_name && ' (Host)'}
                         </p>
                         {handRaisedParticipants.has(participant.id) && (
-                          <Hand className="w-4 h-4 text-yellow-500" />
+                          <Hand className="w-3 h-3 lg:w-4 lg:h-4 text-yellow-500" />
                         )}
                       </div>
                       <p className="text-xs text-gray-500">
@@ -619,7 +635,7 @@ export function MeetingRoom() {
                 {participants.length === 0 && (
                   <div className="text-center text-gray-500 py-8">
                     <Users className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">No participants yet</p>
+                    <p className="text-xs lg:text-sm">No participants yet</p>
                   </div>
                 )}
               </div>
@@ -627,6 +643,14 @@ export function MeetingRoom() {
           )}
         </div>
       </div>
+
+      {/* Mobile overlay */}
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
     </div>
   );
 }
