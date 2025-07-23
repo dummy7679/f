@@ -50,6 +50,7 @@ export function MeetingRoom() {
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [handRaised, setHandRaised] = useState(false);
+  const [handRaisedParticipants, setHandRaisedParticipants] = useState<Set<string>>(new Set());
 
   // WebRTC
   const [webrtcManager, setWebrtcManager] = useState<WebRTCManager | null>(null);
@@ -58,8 +59,8 @@ export function MeetingRoom() {
 
   // Refs
   const chatContainerRef = useRef<HTMLDivElement>(null);
-  const chatChannelRef = useRef<any>(null);
-  const participantsChannelRef = useRef<any>(null);
+  const chatRefreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const participantsRefreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (meetingCode) {
@@ -84,11 +85,11 @@ export function MeetingRoom() {
     if (localStream) {
       localStream.getTracks().forEach(track => track.stop());
     }
-    if (chatChannelRef.current) {
-      chatChannelRef.current.unsubscribe();
+    if (chatRefreshIntervalRef.current) {
+      clearInterval(chatRefreshIntervalRef.current);
     }
-    if (participantsChannelRef.current) {
-      participantsChannelRef.current.unsubscribe();
+    if (participantsRefreshIntervalRef.current) {
+      clearInterval(participantsRefreshIntervalRef.current);
     }
   };
 
@@ -131,23 +132,43 @@ export function MeetingRoom() {
       }
 
       // Initialize WebRTC
-      const manager = new WebRTCManager(meetingData.id, participantId);
+      const manager = new WebRTCManager(meetingData.id, participantId, name);
       setWebrtcManager(manager);
 
       // Setup WebRTC callbacks
-      manager.onStream((peerId, stream) => {
+      manager.onStream((peerId, stream, participantName) => {
+        console.log('Received stream from:', participantName);
         setRemoteStreams(prev => {
           const newMap = new Map(prev);
-          newMap.set(peerId, { stream, name: `Participant ${peerId.slice(0, 8)}` });
+          newMap.set(peerId, { stream, name: participantName });
           return newMap;
         });
       });
 
       manager.onPeerLeft((peerId) => {
+        console.log('Peer left:', peerId);
         setRemoteStreams(prev => {
           const newMap = new Map(prev);
           newMap.delete(peerId);
           return newMap;
+        });
+        setHandRaisedParticipants(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(peerId);
+          return newSet;
+        });
+      });
+
+      manager.onHandRaised((participantId, name, raised) => {
+        setHandRaisedParticipants(prev => {
+          const newSet = new Set(prev);
+          if (raised) {
+            newSet.add(participantId);
+            toast.success(`${name} raised their hand`);
+          } else {
+            newSet.delete(participantId);
+          }
+          return newSet;
         });
       });
 
@@ -158,8 +179,8 @@ export function MeetingRoom() {
       // Join the meeting
       await manager.joinMeeting();
 
-      // Subscribe to real-time updates
-      subscribeToRealtimeUpdates(meetingData.id);
+      // Start real-time updates
+      startRealtimeUpdates(meetingData.id);
       
       setIsLoading(false);
       toast.success('Joined meeting successfully!');
@@ -171,57 +192,20 @@ export function MeetingRoom() {
     }
   };
 
-  const subscribeToRealtimeUpdates = (meetingId: string) => {
-    // Subscribe to chat messages with real-time refresh
-    chatChannelRef.current = supabase
-      .channel(`meeting-chat-${meetingId}`)
-      .on('postgres_changes', 
-        { 
-          event: 'INSERT', 
-          schema: 'public', 
-          table: 'messages',
-          filter: `meeting_id=eq.${meetingId}`
-        }, 
-        (payload) => {
-          setChatMessages(prev => [...prev, payload.new as ChatMessage]);
-        }
-      )
-      .subscribe();
-
-    // Subscribe to participants
-    participantsChannelRef.current = supabase
-      .channel(`meeting-participants-${meetingId}`)
-      .on('postgres_changes', 
-        { 
-          event: '*', 
-          schema: 'public', 
-          table: 'participants',
-          filter: `meeting_id=eq.${meetingId}`
-        }, 
-        () => {
-          fetchParticipants(meetingId);
-        }
-      )
-      .subscribe();
-
+  const startRealtimeUpdates = (meetingId: string) => {
     // Fetch initial data
     fetchChatMessages(meetingId);
     fetchParticipants(meetingId);
 
-    // Set up periodic refresh for chat (every 2 seconds)
-    const chatRefreshInterval = setInterval(() => {
+    // Set up chat refresh every 1 second for real-time feel
+    chatRefreshIntervalRef.current = setInterval(() => {
       fetchChatMessages(meetingId);
-    }, 2000);
+    }, 1000);
 
-    // Set up periodic refresh for participants (every 5 seconds)
-    const participantsRefreshInterval = setInterval(() => {
+    // Set up participants refresh every 3 seconds
+    participantsRefreshIntervalRef.current = setInterval(() => {
       fetchParticipants(meetingId);
-    }, 5000);
-
-    return () => {
-      clearInterval(chatRefreshInterval);
-      clearInterval(participantsRefreshInterval);
-    };
+    }, 3000);
   };
 
   const fetchChatMessages = async (meetingId: string) => {
@@ -257,17 +241,19 @@ export function MeetingRoom() {
 
   const toggleMute = () => {
     if (webrtcManager) {
-      webrtcManager.toggleAudio(!isMuted);
-      setIsMuted(!isMuted);
-      toast.success(isMuted ? 'Microphone unmuted' : 'Microphone muted');
+      const newMutedState = !isMuted;
+      webrtcManager.toggleAudio(!newMutedState);
+      setIsMuted(newMutedState);
+      toast.success(newMutedState ? 'Microphone muted' : 'Microphone unmuted');
     }
   };
 
   const toggleCamera = () => {
     if (webrtcManager) {
-      webrtcManager.toggleVideo(!isCameraOff);
-      setIsCameraOff(!isCameraOff);
-      toast.success(isCameraOff ? 'Camera turned on' : 'Camera turned off');
+      const newCameraState = !isCameraOff;
+      webrtcManager.toggleVideo(!newCameraState);
+      setIsCameraOff(newCameraState);
+      toast.success(newCameraState ? 'Camera turned off' : 'Camera turned on');
     }
   };
 
@@ -289,16 +275,29 @@ export function MeetingRoom() {
         toast.success('Screen sharing started');
         
         // Listen for screen share end
-        screenStream.getVideoTracks()[0].onended = async () => {
-          setIsScreenSharing(false);
-          const stream = await webrtcManager.initializeMedia(true, true);
-          setLocalStream(stream);
-        };
+        const videoTrack = screenStream.getVideoTracks()[0];
+        if (videoTrack) {
+          videoTrack.onended = async () => {
+            setIsScreenSharing(false);
+            const stream = await webrtcManager.initializeMedia(true, true);
+            setLocalStream(stream);
+            toast.info('Screen sharing ended');
+          };
+        }
       }
     } catch (error) {
       console.error('Error toggling screen share:', error);
       toast.error('Failed to toggle screen sharing');
     }
+  };
+
+  const toggleHandRaise = async () => {
+    if (!webrtcManager) return;
+
+    const newHandRaisedState = !handRaised;
+    setHandRaised(newHandRaisedState);
+    await webrtcManager.raiseHand(newHandRaisedState);
+    toast.success(newHandRaisedState ? 'Hand raised' : 'Hand lowered');
   };
 
   const sendMessage = async (e: React.FormEvent) => {
@@ -317,6 +316,8 @@ export function MeetingRoom() {
 
       if (error) throw error;
       setNewMessage('');
+      // Immediately fetch messages to show the new message
+      fetchChatMessages(meeting.id);
     } catch (error) {
       console.error('Error sending message:', error);
       toast.error('Failed to send message');
@@ -372,6 +373,8 @@ export function MeetingRoom() {
           isMuted={isMuted}
           isCameraOff={isCameraOff}
           isScreenSharing={isScreenSharing}
+          handRaisedParticipants={handRaisedParticipants}
+          localHandRaised={handRaised}
         />
         
         {/* Top bar */}
@@ -381,6 +384,9 @@ export function MeetingRoom() {
               <h1 className="text-xl font-semibold">{meeting?.title}</h1>
               <span className="text-sm opacity-75">
                 {format(new Date(), 'HH:mm')}
+              </span>
+              <span className="text-sm bg-white/20 px-2 py-1 rounded">
+                {participants.length} participant{participants.length !== 1 ? 's' : ''}
               </span>
             </div>
             <div className="flex items-center space-x-2">
@@ -411,6 +417,7 @@ export function MeetingRoom() {
                   ? 'bg-red-500 hover:bg-red-600' 
                   : 'bg-white/20 hover:bg-white/30'
               }`}
+              title={isMuted ? 'Unmute' : 'Mute'}
             >
               {isMuted ? (
                 <MicOff className="w-6 h-6 text-white" />
@@ -426,6 +433,7 @@ export function MeetingRoom() {
                   ? 'bg-red-500 hover:bg-red-600' 
                   : 'bg-white/20 hover:bg-white/30'
               }`}
+              title={isCameraOff ? 'Turn on camera' : 'Turn off camera'}
             >
               {isCameraOff ? (
                 <VideoOff className="w-6 h-6 text-white" />
@@ -441,6 +449,7 @@ export function MeetingRoom() {
                   ? 'bg-blue-500 hover:bg-blue-600' 
                   : 'bg-white/20 hover:bg-white/30'
               }`}
+              title={isScreenSharing ? 'Stop sharing' : 'Share screen'}
             >
               {isScreenSharing ? (
                 <MonitorOff className="w-6 h-6 text-white" />
@@ -450,12 +459,13 @@ export function MeetingRoom() {
             </button>
 
             <button
-              onClick={() => setHandRaised(!handRaised)}
+              onClick={toggleHandRaise}
               className={`p-4 rounded-full transition-all ${
                 handRaised 
                   ? 'bg-yellow-500 hover:bg-yellow-600' 
                   : 'bg-white/20 hover:bg-white/30'
               }`}
+              title={handRaised ? 'Lower hand' : 'Raise hand'}
             >
               <Hand className="w-6 h-6 text-white" />
             </button>
@@ -463,6 +473,7 @@ export function MeetingRoom() {
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
               className="p-4 rounded-full bg-white/20 hover:bg-white/30 transition-all lg:hidden"
+              title="Toggle chat"
             >
               <MessageSquare className="w-6 h-6 text-white" />
             </button>
@@ -470,6 +481,7 @@ export function MeetingRoom() {
             <button
               onClick={leaveMeeting}
               className="p-4 rounded-full bg-red-500 hover:bg-red-600 transition-all"
+              title="Leave meeting"
             >
               <PhoneOff className="w-6 h-6 text-white" />
             </button>
@@ -574,11 +586,16 @@ export function MeetingRoom() {
                       </span>
                     </div>
                     <div className="flex-1">
-                      <p className="text-sm font-medium text-gray-900">
-                        {participant.name}
-                        {participant.name === participantName && ' (You)'}
-                        {participant.name === meeting?.host_name && ' (Host)'}
-                      </p>
+                      <div className="flex items-center space-x-2">
+                        <p className="text-sm font-medium text-gray-900">
+                          {participant.name}
+                          {participant.name === participantName && ' (You)'}
+                          {participant.name === meeting?.host_name && ' (Host)'}
+                        </p>
+                        {handRaisedParticipants.has(participant.id) && (
+                          <Hand className="w-4 h-4 text-yellow-500" />
+                        )}
+                      </div>
                       <p className="text-xs text-gray-500">
                         Joined {format(new Date(participant.joined_at), 'HH:mm')}
                       </p>

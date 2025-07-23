@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { Mic, MicOff, Video, VideoOff } from 'lucide-react';
+import { Mic, MicOff, Video, VideoOff, Hand } from 'lucide-react';
 
 interface VideoTileProps {
   stream?: MediaStream;
@@ -8,6 +8,7 @@ interface VideoTileProps {
   isMuted?: boolean;
   isCameraOff?: boolean;
   isScreenShare?: boolean;
+  handRaised?: boolean;
 }
 
 function VideoTile({ 
@@ -16,13 +17,15 @@ function VideoTile({
   isLocal = false, 
   isMuted = false, 
   isCameraOff = false,
-  isScreenShare = false 
+  isScreenShare = false,
+  handRaised = false
 }: VideoTileProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
+      videoRef.current.play().catch(console.error);
     }
   }, [stream]);
 
@@ -49,6 +52,15 @@ function VideoTile({
               <span className="text-xl font-semibold">{initials}</span>
             </div>
             <p className="text-sm">{participantName}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Hand raised indicator */}
+      {handRaised && (
+        <div className="absolute top-3 right-3">
+          <div className="bg-yellow-500 text-white p-2 rounded-full animate-bounce">
+            <Hand className="w-4 h-4" />
           </div>
         </div>
       )}
@@ -88,6 +100,8 @@ interface VideoGridProps {
   isMuted: boolean;
   isCameraOff: boolean;
   isScreenSharing: boolean;
+  handRaisedParticipants: Set<string>;
+  localHandRaised: boolean;
 }
 
 export function VideoGrid({
@@ -96,7 +110,9 @@ export function VideoGrid({
   localParticipantName,
   isMuted,
   isCameraOff,
-  isScreenSharing
+  isScreenSharing,
+  handRaisedParticipants,
+  localHandRaised
 }: VideoGridProps) {
   const totalParticipants = 1 + remoteStreams.size;
   
@@ -119,6 +135,7 @@ export function VideoGrid({
         isMuted={isMuted}
         isCameraOff={isCameraOff}
         isScreenShare={isScreenSharing}
+        handRaised={localHandRaised}
       />
 
       {/* Remote videos */}
@@ -128,6 +145,7 @@ export function VideoGrid({
           stream={stream}
           participantName={name}
           isLocal={false}
+          handRaised={handRaisedParticipants.has(peerId)}
         />
       ))}
     </div>
