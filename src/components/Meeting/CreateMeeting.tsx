@@ -45,7 +45,13 @@ export function CreateMeeting() {
       if (error) throw error;
 
       toast.success('Meeting created successfully!');
-      navigate(`/meeting/${accessCode}?created=true`);
+      navigate(`/meeting/${accessCode}`, {
+        state: {
+          meetingTitle: formData.title.trim(),
+          hostName: formData.hostName.trim(),
+          isHost: true,
+        }
+      });
     } catch (error: any) {
       console.error('Error creating meeting:', error);
       toast.error(error.message || 'Failed to create meeting');
@@ -82,7 +88,13 @@ export function CreateMeeting() {
       if (error) throw error;
 
       toast.success('Instant meeting started!');
-      navigate(`/meeting/${accessCode}`);
+      navigate(`/meeting/${accessCode}`, {
+        state: {
+          meetingTitle: 'Instant Meeting',
+          hostName: formData.hostName.trim(),
+          isHost: true,
+        }
+      });
     } catch (error: any) {
       console.error('Error starting instant meeting:', error);
       toast.error(error.message || 'Failed to start meeting');

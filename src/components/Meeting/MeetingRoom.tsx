@@ -5,16 +5,13 @@ import {
   MessageSquare, Users, Hand, PhoneOff, Settings,
   Copy, Send, MoreVertical
 } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
-import { useDaily } from '@daily-co/daily-react-hooks';
-import DailyIframe from '@daily-co/daily-js';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 
 interface ChatMessage {
   id: string;
-  sender_id: string;
+  sender_id: string | null;
   sender_name: string;
   content: string;
   created_at: string;
@@ -25,7 +22,6 @@ interface Participant {
   name: string;
   user_id?: string;
   joined_at: string;
-  is_host: boolean;
 }
 
 export function MeetingRoom() {
@@ -33,18 +29,13 @@ export function MeetingRoom() {
   const location = useLocation();
   const navigate = useNavigate();
   
-  // Daily.co state
-  const callFrame = useRef<any>(null);
-  const [callObject, setCallObject] = useState<any>(null);
-  const [participants, setParticipants] = useState<any>({});
-  const [isJoined, setIsJoined] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  
   // Meeting state
   const [meeting, setMeeting] = useState<any>(null);
-  const [meetingParticipants, setMeetingParticipants] = useState<Participant[]>([]);
+  const [participants, setParticipants] = useState<Participant[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [participantName, setParticipantName] = useState('');
   
   // UI state
   const [activeTab, setActiveTab] = useState<'chat' | 'participants'>('chat');
@@ -56,19 +47,31 @@ export function MeetingRoom() {
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [handRaised, setHandRaised] = useState(false);
 
+  // Video refs
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+
   useEffect(() => {
     if (meetingCode) {
       initializeMeeting();
     }
     return () => {
-      if (callObject) {
-        callObject.destroy();
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
       }
     };
   }, [meetingCode]);
 
   const initializeMeeting = async () => {
     try {
+      // Get participant name from location state or prompt
+      const name = location.state?.participantName || 
+                   location.state?.hostName || 
+                   prompt('Enter your name:') || 
+                   'Guest';
+      
+      setParticipantName(name);
+
       // Fetch meeting details
       const { data: meetingData, error: meetingError } = await supabase
         .from('meetings')
@@ -76,44 +79,35 @@ export function MeetingRoom() {
         .eq('access_code', meetingCode?.toUpperCase())
         .single();
 
-      if (meetingError) throw meetingError;
+      if (meetingError) {
+        toast.error('Meeting not found');
+        navigate('/');
+        return;
+      }
       
       setMeeting(meetingData);
 
-      // Create Daily.co room URL (in production, you'd create this via Daily.co API)
-      const roomUrl = `https://metstack.daily.co/${meetingCode?.toLowerCase()}`;
-      
-      // Initialize Daily.co
-      const callFrame = DailyIframe.createFrame({
-        showLeaveButton: false,
-        iframeStyle: {
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          border: 'none',
-        },
-      });
+      // Add participant to database
+      const { error: participantError } = await supabase
+        .from('participants')
+        .insert({
+          meeting_id: meetingData.id,
+          name: name,
+          user_id: null,
+        });
 
-      setCallObject(callFrame);
-      
-      // Join the call
-      await callFrame.join({ 
-        url: roomUrl,
-        userName: location.state?.participantName || 'Guest'
-      });
+      if (participantError) {
+        console.error('Error adding participant:', participantError);
+      }
 
-      setIsJoined(true);
-      setIsLoading(false);
-
-      // Set up event listeners
-      callFrame.on('participant-joined', handleParticipantJoined);
-      callFrame.on('participant-left', handleParticipantLeft);
-      callFrame.on('participant-updated', handleParticipantUpdated);
+      // Initialize media
+      await initializeMedia();
 
       // Subscribe to real-time updates
-      subscribeToRealtimeUpdates();
+      subscribeToRealtimeUpdates(meetingData.id);
+      
+      setIsLoading(false);
+      toast.success('Joined meeting successfully!');
       
     } catch (error: any) {
       console.error('Error initializing meeting:', error);
@@ -122,40 +116,34 @@ export function MeetingRoom() {
     }
   };
 
-  const handleParticipantJoined = (event: any) => {
-    setParticipants(prev => ({
-      ...prev,
-      [event.participant.session_id]: event.participant
-    }));
+  const initializeMedia = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true
+      });
+      
+      setLocalStream(stream);
+      
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+      }
+    } catch (error) {
+      console.error('Error accessing media devices:', error);
+      toast.error('Could not access camera/microphone');
+    }
   };
 
-  const handleParticipantLeft = (event: any) => {
-    setParticipants(prev => {
-      const updated = { ...prev };
-      delete updated[event.participant.session_id];
-      return updated;
-    });
-  };
-
-  const handleParticipantUpdated = (event: any) => {
-    setParticipants(prev => ({
-      ...prev,
-      [event.participant.session_id]: event.participant
-    }));
-  };
-
-  const subscribeToRealtimeUpdates = () => {
-    if (!meeting?.id) return;
-
+  const subscribeToRealtimeUpdates = (meetingId: string) => {
     // Subscribe to chat messages
     const chatChannel = supabase
-      .channel(`meeting-chat-${meeting.id}`)
+      .channel(`meeting-chat-${meetingId}`)
       .on('postgres_changes', 
         { 
           event: 'INSERT', 
           schema: 'public', 
           table: 'messages',
-          filter: `meeting_id=eq.${meeting.id}`
+          filter: `meeting_id=eq.${meetingId}`
         }, 
         (payload) => {
           setChatMessages(prev => [...prev, payload.new as ChatMessage]);
@@ -163,33 +151,116 @@ export function MeetingRoom() {
       )
       .subscribe();
 
+    // Subscribe to participants
+    const participantsChannel = supabase
+      .channel(`meeting-participants-${meetingId}`)
+      .on('postgres_changes', 
+        { 
+          event: '*', 
+          schema: 'public', 
+          table: 'participants',
+          filter: `meeting_id=eq.${meetingId}`
+        }, 
+        () => {
+          fetchParticipants(meetingId);
+        }
+      )
+      .subscribe();
+
+    // Fetch initial data
+    fetchChatMessages(meetingId);
+    fetchParticipants(meetingId);
+
     return () => {
       chatChannel.unsubscribe();
+      participantsChannel.unsubscribe();
     };
   };
 
-  const toggleMute = async () => {
-    if (callObject) {
-      await callObject.setLocalAudio(!isMuted);
-      setIsMuted(!isMuted);
+  const fetchChatMessages = async (meetingId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('meeting_id', meetingId)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+      setChatMessages(data || []);
+    } catch (error) {
+      console.error('Error fetching messages:', error);
     }
   };
 
-  const toggleCamera = async () => {
-    if (callObject) {
-      await callObject.setLocalVideo(!isCameraOff);
-      setIsCameraOff(!isCameraOff);
+  const fetchParticipants = async (meetingId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('participants')
+        .select('*')
+        .eq('meeting_id', meetingId)
+        .is('left_at', null)
+        .order('joined_at', { ascending: true });
+
+      if (error) throw error;
+      setParticipants(data || []);
+    } catch (error) {
+      console.error('Error fetching participants:', error);
+    }
+  };
+
+  const toggleMute = () => {
+    if (localStream) {
+      const audioTrack = localStream.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.enabled = isMuted;
+        setIsMuted(!isMuted);
+        toast.success(isMuted ? 'Microphone unmuted' : 'Microphone muted');
+      }
+    }
+  };
+
+  const toggleCamera = () => {
+    if (localStream) {
+      const videoTrack = localStream.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.enabled = isCameraOff;
+        setIsCameraOff(!isCameraOff);
+        toast.success(isCameraOff ? 'Camera turned on' : 'Camera turned off');
+      }
     }
   };
 
   const toggleScreenShare = async () => {
-    if (callObject) {
+    try {
       if (isScreenSharing) {
-        await callObject.stopScreenShare();
+        // Stop screen sharing and return to camera
+        await initializeMedia();
+        setIsScreenSharing(false);
+        toast.success('Screen sharing stopped');
       } else {
-        await callObject.startScreenShare();
+        // Start screen sharing
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: true
+        });
+        
+        setLocalStream(screenStream);
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = screenStream;
+        }
+        
+        setIsScreenSharing(true);
+        toast.success('Screen sharing started');
+        
+        // Listen for screen share end
+        screenStream.getVideoTracks()[0].onended = () => {
+          setIsScreenSharing(false);
+          initializeMedia();
+        };
       }
-      setIsScreenSharing(!isScreenSharing);
+    } catch (error) {
+      console.error('Error toggling screen share:', error);
+      toast.error('Failed to toggle screen sharing');
     }
   };
 
@@ -203,7 +274,7 @@ export function MeetingRoom() {
         .insert({
           meeting_id: meeting.id,
           sender_id: null,
-          sender_name: location.state?.participantName || 'Guest',
+          sender_name: participantName,
           content: newMessage.trim(),
         });
 
@@ -216,11 +287,27 @@ export function MeetingRoom() {
   };
 
   const leaveMeeting = async () => {
-    if (callObject) {
-      await callObject.leave();
-      callObject.destroy();
+    try {
+      // Update participant as left
+      if (meeting?.id) {
+        await supabase
+          .from('participants')
+          .update({ left_at: new Date().toISOString() })
+          .eq('meeting_id', meeting.id)
+          .eq('name', participantName);
+      }
+
+      // Stop media streams
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+      }
+
+      toast.success('Left meeting');
+      navigate('/');
+    } catch (error) {
+      console.error('Error leaving meeting:', error);
+      navigate('/');
     }
-    navigate('/');
   };
 
   const copyMeetingLink = () => {
@@ -244,8 +331,29 @@ export function MeetingRoom() {
     <div className="h-screen bg-gray-900 flex">
       {/* Main video area */}
       <div className="flex-1 relative">
-        {/* Video container */}
-        <div className="absolute inset-0" ref={callFrame} />
+        {/* Local video */}
+        <div className="absolute inset-0 bg-gray-800">
+          <video
+            ref={localVideoRef}
+            autoPlay
+            muted
+            playsInline
+            className="w-full h-full object-cover"
+          />
+          {isCameraOff && (
+            <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
+              <div className="text-center text-white">
+                <div className="w-24 h-24 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <span className="text-2xl font-semibold">
+                    {participantName.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+                <p className="text-lg">{participantName}</p>
+                <p className="text-sm opacity-75">Camera is off</p>
+              </div>
+            </div>
+          )}
+        </div>
         
         {/* Top bar */}
         <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/50 to-transparent p-6 z-10">
@@ -377,7 +485,7 @@ export function MeetingRoom() {
               }`}
             >
               <Users className="w-4 h-4 inline mr-2" />
-              People ({Object.keys(participants).length})
+              People ({participants.length})
             </button>
           </div>
         </div>
@@ -436,28 +544,31 @@ export function MeetingRoom() {
             /* Participants list */
             <div className="flex-1 overflow-y-auto p-4">
               <div className="space-y-3">
-                {Object.values(participants).map((participant: any) => (
-                  <div key={participant.session_id} className="flex items-center space-x-3 p-3 rounded-lg hover:bg-gray-50">
+                {participants.map((participant) => (
+                  <div key={participant.id} className="flex items-center space-x-3 p-3 rounded-lg hover:bg-gray-50">
                     <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center">
                       <span className="text-white font-medium text-sm">
-                        {participant.user_name?.charAt(0)?.toUpperCase() || 'G'}
+                        {participant.name.charAt(0).toUpperCase()}
                       </span>
                     </div>
                     <div className="flex-1">
                       <p className="text-sm font-medium text-gray-900">
-                        {participant.user_name || 'Guest'}
-                        {participant.local && ' (You)'}
-                        {participant.owner && ' (Host)'}
+                        {participant.name}
+                        {participant.name === participantName && ' (You)'}
+                        {participant.name === meeting?.host_name && ' (Host)'}
                       </p>
-                      <div className="flex items-center space-x-2 text-xs text-gray-500">
-                        {participant.audio && <Mic className="w-3 h-3" />}
-                        {!participant.audio && <MicOff className="w-3 h-3" />}
-                        {participant.video && <Video className="w-3 h-3" />}
-                        {!participant.video && <VideoOff className="w-3 h-3" />}
-                      </div>
+                      <p className="text-xs text-gray-500">
+                        Joined {format(new Date(participant.joined_at), 'HH:mm')}
+                      </p>
                     </div>
                   </div>
                 ))}
+                {participants.length === 0 && (
+                  <div className="text-center text-gray-500 py-8">
+                    <Users className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">No participants yet</p>
+                  </div>
+                )}
               </div>
             </div>
           )}
