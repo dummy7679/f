@@ -25,7 +25,22 @@ function VideoTile({
   useEffect(() => {
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
-      videoRef.current.play().catch(console.error);
+      // Enhanced video playback with better error handling
+      const playVideo = async () => {
+        try {
+          videoRef.current!.muted = isLocal; // Prevent echo for local video
+          await videoRef.current!.play();
+        } catch (error) {
+          console.error('Error playing video:', error);
+          // Retry after a short delay
+          setTimeout(() => {
+            if (videoRef.current) {
+              videoRef.current.play().catch(console.error);
+            }
+          }, 100);
+        }
+      };
+      playVideo();
     }
   }, [stream]);
 

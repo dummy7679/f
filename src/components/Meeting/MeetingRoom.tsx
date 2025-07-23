@@ -142,6 +142,11 @@ export function MeetingRoom() {
           newMap.set(peerId, { stream, name: participantName });
           return newMap;
         });
+        
+        // Force re-render to show new participant immediately
+        setTimeout(() => {
+          fetchParticipants(meetingData.id);
+        }, 100);
       });
 
       manager.onPeerLeft((peerId) => {
@@ -156,6 +161,11 @@ export function MeetingRoom() {
           newSet.delete(peerId);
           return newSet;
         });
+        
+        // Update participants list immediately
+        setTimeout(() => {
+          fetchParticipants(meetingData.id);
+        }, 100);
       });
 
       manager.onHandRaised((participantId, name, raised) => {
@@ -171,9 +181,14 @@ export function MeetingRoom() {
         });
       });
 
-      // Initialize media
-      const stream = await manager.initializeMedia(true, true);
+      // Initialize media with enhanced quality
+      const videoEnabled = location.state?.videoEnabled !== false;
+      const audioEnabled = location.state?.audioEnabled !== false;
+      
+      const stream = await manager.initializeMedia(videoEnabled, audioEnabled);
       setLocalStream(stream);
+      setIsCameraOff(!videoEnabled);
+      setIsMuted(!audioEnabled);
 
       // Join the meeting
       await manager.joinMeeting();
@@ -196,15 +211,15 @@ export function MeetingRoom() {
     fetchChatMessages(meetingId);
     fetchParticipants(meetingId);
 
-    // Set up chat refresh every 1 second for real-time feel
+    // Set up chat refresh every 500ms for better real-time feel
     chatRefreshIntervalRef.current = setInterval(() => {
       fetchChatMessages(meetingId);
-    }, 1000);
+    }, 500);
 
-    // Set up participants refresh every 3 seconds
+    // Set up participants refresh every 1 second
     participantsRefreshIntervalRef.current = setInterval(() => {
       fetchParticipants(meetingId);
-    }, 3000);
+    }, 1000);
   };
 
   const fetchChatMessages = async (meetingId: string) => {
